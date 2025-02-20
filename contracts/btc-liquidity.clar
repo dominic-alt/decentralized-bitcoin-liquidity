@@ -160,3 +160,77 @@
     (if value
         (ok true)
         (ok false)))
+
+;; Public Functions
+
+;; Deposit BTC into the liquidity pool
+(define-public (deposit (amount uint))
+    (let (
+        (user tx-sender)
+        (current-liquidity (var-get total-liquidity))
+        (new-liquidity (+ current-liquidity amount))
+    )
+    (try! (check-pool-status))
+    (try! (validate-deposit-amount amount))
+
+    (match (map-get? user-deposits user)
+        existing-deposit 
+        (let (
+            (new-user-amount (+ amount (get amount existing-deposit)))
+        )
+            (asserts! (<= new-user-amount (var-get max-deposit-per-user)) err-above-max-deposit)
+            (try! (update-user-yield user))
+            (map-set user-deposits
+                user
+                {
+                    amount: new-user-amount,
+                    last-deposit-height: block-height,
+                    accumulated-yield: (get accumulated-yield existing-deposit),
+                    last-action-height: block-height,
+                    total-deposits: (+ (get total-deposits existing-deposit) amount),
+                    total-withdrawals: (get total-withdrawals existing-deposit)
+                }))
+        (map-set user-deposits
+            user
+            {
+                amount: amount,
+                last-deposit-height: block-height,
+                accumulated-yield: u0,
+                last-action-height: block-height,
+                total-deposits: amount,
+                total-withdrawals: u0
+            }))
+
+    (var-set total-liquidity new-liquidity)
+    (asserts! (log-event "DEPOSIT" user amount) err-event-error)
+    (ok true)))
+
+;; Withdraw BTC from the liquidity pool
+(define-public (withdraw (amount uint))
+    (let (
+        (user tx-sender)
+        (user-data (unwrap! (map-get? user-deposits user) err-not-found))
+        (current-balance (get amount user-data))
+    )
+    (try! (check-pool-status))
+    (asserts! (<= amount current-balance) err-insufficient-balance)
+
+    (try! (update-user-yield user))
+    (let (
+        (updated-data (unwrap! (map-get? user-deposits user) err-not-found))
+        (remaining-balance (- current-balance amount))
+    )
+        (map-set user-deposits
+            user
+            {
+                amount: remaining-balance,
+                last-deposit-height: block-height,
+                accumulated-yield: (get accumulated-yield updated-data),
+                last-action-height: block-height,
+                total-deposits: (get total-deposits updated-data),
+                total-withdrawals: (+ (get total-withdrawals updated-data) amount)
+            })
+        
+        (var-set total-liquidity (- (var-get total-liquidity) amount))
+        (asserts! (log-event "WITHDRAW" user amount) err-event-error)
+        (ok true))))
