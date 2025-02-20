@@ -43,3 +43,44 @@
 (define-constant err-above-max-deposit (err u110))
 (define-constant err-paused (err u111))
 (define-constant err-event-error (err u112))
+
+;; State Variables
+
+(define-data-var total-liquidity uint u0)
+(define-data-var pool-active bool true)
+(define-data-var emergency-paused bool false)
+(define-data-var min-deposit uint u1000000)         ;; 0.01 BTC in sats
+(define-data-var max-deposit-per-user uint u1000000000)  ;; 10 BTC in sats
+(define-data-var max-pool-size uint u100000000000)  ;; 1000 BTC in sats
+(define-data-var yield-rate uint u500)              ;; 5% APY in basis points
+(define-data-var last-yield-calculation uint block-height)
+(define-data-var total-yield-paid uint u0)
+(define-data-var last-emergency-action uint u0)
+
+;; Data Maps
+
+;; User deposit tracking with comprehensive metrics
+(define-map user-deposits
+    principal
+    {
+        amount: uint,
+        last-deposit-height: uint,
+        accumulated-yield: uint,
+        last-action-height: uint,
+        total-deposits: uint,
+        total-withdrawals: uint
+    })
+
+;; Historical yield rate snapshots for auditing
+(define-map yield-snapshots
+    uint  ;; block height
+    {
+        rate: uint,
+        total-liquidity: uint,
+        timestamp: uint
+    })
+
+;; Operator authorization mapping
+(define-map authorized-operators
+    principal
+    bool)
