@@ -13,7 +13,7 @@
 ;;
 ;; Yield Generation:
 ;; - Dynamic APY adjustments
-;; - Block-height based calculations
+;; - stacks-Block-height based calculations
 ;; - Efficient compound interest implementation
 ;;
 ;; Bitcoin Compliance:
@@ -53,7 +53,7 @@
 (define-data-var max-deposit-per-user uint u1000000000)  ;; 10 BTC in sats
 (define-data-var max-pool-size uint u100000000000)  ;; 1000 BTC in sats
 (define-data-var yield-rate uint u500)              ;; 5% APY in basis points
-(define-data-var last-yield-calculation uint block-height)
+(define-data-var last-yield-calculation uint stacks-block-height)
 (define-data-var total-yield-paid uint u0)
 (define-data-var last-emergency-action uint u0)
 
@@ -69,7 +69,8 @@
         last-action-height: uint,
         total-deposits: uint,
         total-withdrawals: uint
-    })
+    }
+)
 
 ;; Historical yield rate snapshots for auditing
 (define-map yield-snapshots
@@ -78,12 +79,14 @@
         rate: uint,
         total-liquidity: uint,
         timestamp: uint
-    })
+    }
+)
 
 ;; Operator authorization mapping
 (define-map authorized-operators
     principal
-    bool)
+    bool
+)
 
 ;; Event System
 
@@ -95,8 +98,9 @@
         event-type: (string-ascii 20),
         user: principal,
         amount: uint,
-        block-height: uint
-    })
+        stacks-block-height: uint
+    }
+)
 
 ;; Private Functions
 
@@ -108,10 +112,11 @@
                 event-type: event-type,
                 user: user,
                 amount: amount,
-                block-height: block-height
+                stacks-block-height: stacks-block-height
             })
         (var-set event-counter (+ (var-get event-counter) u1))
-        true))
+        true)
+)
 
 ;; Calculates yield based on amount and block duration
 (define-private (calculate-yield (amount uint) (blocks uint))
@@ -119,13 +124,14 @@
         (rate (var-get yield-rate))
         (yield-amount (/ (* amount (* rate blocks)) (* blocks-per-year basis-points-denominator)))
     )
-    yield-amount))
+    yield-amount)
+)
 
 ;; Updates user yield based on current block height
 (define-private (update-user-yield (user principal))
     (let (
         (user-data (unwrap! (map-get? user-deposits user) (err u0)))
-        (current-height block-height)
+        (current-height stacks-block-height)
         (blocks-since-last (- current-height (get last-deposit-height user-data)))
         (new-yield (calculate-yield (get amount user-data) blocks-since-last))
     )
@@ -139,27 +145,31 @@
             total-deposits: (get total-deposits user-data),
             total-withdrawals: (get total-withdrawals user-data)
         })
-    (ok true)))
+    (ok true))
+)
 
 ;; Validates pool operational status
 (define-private (check-pool-status)
     (begin
         (asserts! (var-get pool-active) err-pool-inactive)
         (asserts! (not (var-get emergency-paused)) err-paused)
-        (ok true)))
+        (ok true))
+)
 
 ;; Validates deposit amount against pool constraints
 (define-private (validate-deposit-amount (amount uint))
     (begin
         (asserts! (>= amount (var-get min-deposit)) err-below-min-deposit)
         (asserts! (<= (+ (var-get total-liquidity) amount) (var-get max-pool-size)) err-pool-full)
-        (ok true)))
+        (ok true))
+)
 
 ;; Boolean validation helper
 (define-private (validate-bool (value bool))
     (if value
         (ok true)
-        (ok false)))
+        (ok false))
+)
 
 ;; Public Functions
 
@@ -184,9 +194,9 @@
                 user
                 {
                     amount: new-user-amount,
-                    last-deposit-height: block-height,
+                    last-deposit-height: stacks-block-height,
                     accumulated-yield: (get accumulated-yield existing-deposit),
-                    last-action-height: block-height,
+                    last-action-height: stacks-block-height,
                     total-deposits: (+ (get total-deposits existing-deposit) amount),
                     total-withdrawals: (get total-withdrawals existing-deposit)
                 }))
@@ -194,16 +204,17 @@
             user
             {
                 amount: amount,
-                last-deposit-height: block-height,
+                last-deposit-height: stacks-block-height,
                 accumulated-yield: u0,
-                last-action-height: block-height,
+                last-action-height: stacks-block-height,
                 total-deposits: amount,
                 total-withdrawals: u0
             }))
 
     (var-set total-liquidity new-liquidity)
     (asserts! (log-event "DEPOSIT" user amount) err-event-error)
-    (ok true)))
+    (ok true))
+)
 
 ;; Withdraw BTC from the liquidity pool
 (define-public (withdraw (amount uint))
@@ -224,16 +235,17 @@
             user
             {
                 amount: remaining-balance,
-                last-deposit-height: block-height,
+                last-deposit-height: stacks-block-height,
                 accumulated-yield: (get accumulated-yield updated-data),
-                last-action-height: block-height,
+                last-action-height: stacks-block-height,
                 total-deposits: (get total-deposits updated-data),
                 total-withdrawals: (+ (get total-withdrawals updated-data) amount)
             })
         
         (var-set total-liquidity (- (var-get total-liquidity) amount))
         (asserts! (log-event "WITHDRAW" user amount) err-event-error)
-        (ok true))))
+        (ok true)))
+)
 
 ;; Claim accumulated yield
 (define-public (claim-yield)
@@ -251,21 +263,23 @@
         user
         {
             amount: (get amount updated-data),
-            last-deposit-height: block-height,
+            last-deposit-height: stacks-block-height,
             accumulated-yield: u0,
-            last-action-height: block-height,
+            last-action-height: stacks-block-height,
             total-deposits: (get total-deposits updated-data),
             total-withdrawals: (get total-withdrawals updated-data)
         })
     (var-set total-yield-paid (+ (var-get total-yield-paid) yield-to-claim))
     (asserts! (log-event "CLAIM" user yield-to-claim) err-event-error)
-    (ok yield-to-claim))))
+    (ok yield-to-claim)))
+)
 
 ;; Read-only Functions
 
 ;; Get user position details
 (define-read-only (get-user-position (user principal))
-    (map-get? user-deposits user))
+    (map-get? user-deposits user)
+)
 
 ;; Get comprehensive pool statistics
 (define-read-only (get-pool-stats)
@@ -278,11 +292,13 @@
         max-deposit-per-user: (var-get max-deposit-per-user),
         max-pool-size: (var-get max-pool-size),
         total-yield-paid: (var-get total-yield-paid)
-    })
+    }
+)
 
 ;; Get event details by ID
 (define-read-only (get-event (event-id uint))
-    (map-get? events event-id))
+    (map-get? events event-id)
+)
 
 ;; Administrative Functions
 
@@ -292,25 +308,28 @@
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (var-set pool-active active)
         (asserts! (log-event "POOL_STATUS" contract-owner (if active u1 u0)) err-event-error)
-        (ok true)))
+        (ok true))
+)
 
 ;; Emergency pause for security incidents
 (define-public (emergency-pause)
     (begin
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (var-set emergency-paused true)
-        (var-set last-emergency-action block-height)
+        (var-set last-emergency-action stacks-block-height)
         (asserts! (log-event "EMERGENCY_PAUSE" contract-owner u0) err-event-error)
-        (ok true)))
+        (ok true))
+)
 
 ;; Resume after emergency pause
 (define-public (emergency-resume)
     (begin
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
-        (asserts! (>= (- block-height (var-get last-emergency-action)) emergency-cooldown-period) err-cooldown-active)
+        (asserts! (>= (- stacks-block-height (var-get last-emergency-action)) emergency-cooldown-period) err-cooldown-active)
         (var-set emergency-paused false)
         (asserts! (log-event "EMERGENCY_RESUME" contract-owner u0) err-event-error)
-        (ok true)))
+        (ok true))
+)
 
 ;; Update yield rate
 (define-public (set-yield-rate (new-rate uint))
@@ -318,14 +337,15 @@
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (asserts! (<= new-rate basis-points-denominator) err-invalid-amount)  ;; Max 100% APY
         (var-set yield-rate new-rate)
-        (map-set yield-snapshots block-height
+        (map-set yield-snapshots stacks-block-height
             {
                 rate: new-rate,
                 total-liquidity: (var-get total-liquidity),
-                timestamp: block-height
+                timestamp: stacks-block-height
             })
         (asserts! (log-event "YIELD_RATE" contract-owner new-rate) err-event-error)
-        (ok true)))
+        (ok true))
+)
 
 ;; Update pool parameters
 (define-public (set-pool-parameters (new-min uint) (new-max-per-user uint) (new-max-pool uint))
@@ -337,7 +357,8 @@
         (var-set max-deposit-per-user new-max-per-user)
         (var-set max-pool-size new-max-pool)
         (asserts! (log-event "PARAMS_UPDATE" contract-owner u0) err-event-error)
-        (ok true)))
+        (ok true))
+)
 
 ;; Add authorized operator
 (define-public (add-operator (operator principal))
@@ -345,7 +366,8 @@
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (map-set authorized-operators operator true)
         (asserts! (log-event "ADD_OPERATOR" operator u0) err-event-error)
-        (ok true)))
+        (ok true))
+)
 
 ;; Remove authorized operator
 (define-public (remove-operator (operator principal))
@@ -353,4 +375,5 @@
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (map-set authorized-operators operator false)
         (asserts! (log-event "REMOVE_OPERATOR" operator u0) err-event-error)
-        (ok true)))
+        (ok true))
+)
