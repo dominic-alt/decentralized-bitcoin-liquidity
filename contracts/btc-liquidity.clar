@@ -234,3 +234,80 @@
         (var-set total-liquidity (- (var-get total-liquidity) amount))
         (asserts! (log-event "WITHDRAW" user amount) err-event-error)
         (ok true))))
+
+;; Claim accumulated yield
+(define-public (claim-yield)
+    (let (
+        (user tx-sender)
+        (user-data (unwrap! (map-get? user-deposits user) err-not-found))
+    )
+    (try! (check-pool-status))
+    (try! (update-user-yield user))
+    (let (
+        (updated-data (unwrap! (map-get? user-deposits user) err-not-found))
+        (yield-to-claim (get accumulated-yield updated-data))
+    )
+    (map-set user-deposits
+        user
+        {
+            amount: (get amount updated-data),
+            last-deposit-height: block-height,
+            accumulated-yield: u0,
+            last-action-height: block-height,
+            total-deposits: (get total-deposits updated-data),
+            total-withdrawals: (get total-withdrawals updated-data)
+        })
+    (var-set total-yield-paid (+ (var-get total-yield-paid) yield-to-claim))
+    (asserts! (log-event "CLAIM" user yield-to-claim) err-event-error)
+    (ok yield-to-claim))))
+
+;; Read-only Functions
+
+;; Get user position details
+(define-read-only (get-user-position (user principal))
+    (map-get? user-deposits user))
+
+;; Get comprehensive pool statistics
+(define-read-only (get-pool-stats)
+    {
+        total-liquidity: (var-get total-liquidity),
+        pool-active: (var-get pool-active),
+        emergency-paused: (var-get emergency-paused),
+        current-yield-rate: (var-get yield-rate),
+        min-deposit: (var-get min-deposit),
+        max-deposit-per-user: (var-get max-deposit-per-user),
+        max-pool-size: (var-get max-pool-size),
+        total-yield-paid: (var-get total-yield-paid)
+    })
+
+;; Get event details by ID
+(define-read-only (get-event (event-id uint))
+    (map-get? events event-id))
+
+;; Administrative Functions
+
+;; Toggle pool active status
+(define-public (set-pool-active (active bool))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set pool-active active)
+        (asserts! (log-event "POOL_STATUS" contract-owner (if active u1 u0)) err-event-error)
+        (ok true)))
+
+;; Emergency pause for security incidents
+(define-public (emergency-pause)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set emergency-paused true)
+        (var-set last-emergency-action block-height)
+        (asserts! (log-event "EMERGENCY_PAUSE" contract-owner u0) err-event-error)
+        (ok true)))
+
+;; Resume after emergency pause
+(define-public (emergency-resume)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (asserts! (>= (- block-height (var-get last-emergency-action)) emergency-cooldown-period) err-cooldown-active)
+        (var-set emergency-paused false)
+        (asserts! (log-event "EMERGENCY_RESUME" contract-owner u0) err-event-error)
+        (ok true)))
